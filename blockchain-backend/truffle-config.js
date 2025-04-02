@@ -74,12 +74,21 @@ module.exports = {
     // },
 
     sepolia: {
-      provider: () => new HDWalletProvider(
-        MNEMONIC, 
-        'https://eth-sepolia.g.alchemy.com/v2/488C1sUM1UQGfO8tX20nU0l1kDpt99Og'
-      ),
+      // Use HDWalletProvider with the deployer private key
+      provider: () =>
+        new HDWalletProvider({
+          privateKeys: [
+            process.env.DEPLOYER_PRIVATE_KEY,
+            process.env.SUPPLIER_PRIVATE_KEY,
+            process.env.MANUFACTURER_PRIVATE_KEY,
+            process.env.RETAILER_PRIVATE_KEY
+          ],
+          MNEMONIC,
+          providerOrUrl: 'https://eth-sepolia.g.alchemy.com/v2/488C1sUM1UQGfO8tX20nU0l1kDpt99Og'
+        }),
       network_id: 11155111,  // Sepolia's network id
       gas: 5500000,          // Gas limit
+
       confirmations: 2,      // # of confirmations to wait between deployments
       timeoutBlocks: 200,    // # of blocks before deployment times out
       skipDryRun: true,

@@ -94,7 +94,7 @@ contract SupplyChainManager {
     }
 
     // Product Management
-    function addProduct(
+    function addProductManufacture(
         string memory _name,
         uint _quantity,
         uint _price,

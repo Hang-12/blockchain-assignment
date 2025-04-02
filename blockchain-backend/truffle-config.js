@@ -83,7 +83,7 @@ module.exports = {
       confirmations: 2,      // # of confirmations to wait between deployments
       timeoutBlocks: 200,    // # of blocks before deployment times out
       skipDryRun: true,
-      from: "0xba02612f5EB353431022C4A0003d94728a573140"       // Skip dry run before migrations
+      from: "0xba02612f5EB353431022C4A0003d94728a573140"       // Deployer Account (Metamask Address)
     },
     //
     // An additional network, but with some advanced options…

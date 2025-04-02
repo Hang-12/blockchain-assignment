@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import "./AccountVerification.sol";
+
 contract SupplyChainManager {
     address public owner;
-
-    enum RawMaterialStatus { Created, Supplied, Received }
-    enum ProductStatus { Created, Shipped, Received }
+    AccountVerification public accountVerification;
 
     struct RawMaterial {
         uint id;
@@ -13,8 +13,7 @@ contract SupplyChainManager {
         uint quantity;
         uint price;
         address supplier;
-        address manufacturer;
-        RawMaterialStatus status;
+        string status; // Changed from enum to string
     }
 
     struct Product {
@@ -23,8 +22,7 @@ contract SupplyChainManager {
         uint quantity;
         uint price;
         address manufacturer;
-        address retailer;
-        ProductStatus status;
+        string status; // Changed from enum to string
     }
 
     mapping(uint => RawMaterial) public rawMaterials;
@@ -33,63 +31,62 @@ contract SupplyChainManager {
     uint public rawMaterialCount;
     uint public productCount;
 
-    event RawMaterialSupplied(uint rawMaterialId, address supplier);
+    event RawMaterialCreated(uint rawMaterialId, address supplier);
+    event RawMaterialSupplied(uint rawMaterialId);
     event RawMaterialReceived(uint rawMaterialId, address manufacturer);
-    event ProductShipped(uint productId, address manufacturer);
-    event ProductReceived(uint productId, address retailer);
-    event PaymentProcessed(uint productId, address retailer, uint amount);
+    event ProductCreated(uint productId, address manufacturer);
+    event ProductShipped(uint productId);
+    event ProductReceived(uint productId);
+    event PaymentProcessed(uint id, address sender, uint amount);
 
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Only owner can perform this action");
+    modifier onlyVerifiedSupplier() {
+        (string memory role, bool isVerified) = accountVerification.getUser(msg.sender);
+        require(isVerified && keccak256(abi.encodePacked(role)) == keccak256("Supplier"), "Only verified suppliers can perform this action");
         _;
     }
 
-    modifier onlyManufacturer(uint _rawMaterialId) {
-        require(msg.sender == rawMaterials[_rawMaterialId].manufacturer, "Not authorized");
+    modifier onlyVerifiedManufacturer() {
+        (string memory role, bool isVerified) = accountVerification.getUser(msg.sender);
+        require(isVerified && keccak256(abi.encodePacked(role)) == keccak256("Manufacturer"), "Only verified manufacturers can perform this action");
         _;
     }
 
-    modifier onlyRetailer(uint _productId) {
-        require(msg.sender == products[_productId].retailer, "Not authorized");
-        _;
-    }
-
-    constructor() {
+    constructor(address _accountVerificationAddress) {
         owner = msg.sender;
+        accountVerification = AccountVerification(_accountVerificationAddress);
     }
 
     // Raw Material Management
     function createRawMaterial(
         string memory _name,
         uint _quantity,
-        uint _price,
-        address _supplier,
-        address _manufacturer
-    ) public {
+        uint _price
+    ) public onlyVerifiedSupplier {
         rawMaterialCount++;
         rawMaterials[rawMaterialCount] = RawMaterial(
             rawMaterialCount,
             _name,
             _quantity,
             _price,
-            _supplier,
-            _manufacturer,
-            RawMaterialStatus.Created
+            msg.sender,
+            "Created"
         );
+
+        emit RawMaterialCreated(rawMaterialCount, msg.sender);
     }
 
     function supplyRawMaterial(uint _rawMaterialId) public {
         require(msg.sender == rawMaterials[_rawMaterialId].supplier, "Not authorized");
-        require(rawMaterials[_rawMaterialId].status == RawMaterialStatus.Created, "Invalid status");
+        require(keccak256(abi.encodePacked(rawMaterials[_rawMaterialId].status)) == keccak256("Created"), "Invalid status");
 
-        rawMaterials[_rawMaterialId].status = RawMaterialStatus.Supplied;
-        emit RawMaterialSupplied(_rawMaterialId, msg.sender);
+        rawMaterials[_rawMaterialId].status = "Supplied";
+        emit RawMaterialSupplied(_rawMaterialId);
     }
 
-    function receiveRawMaterial(uint _rawMaterialId) public onlyManufacturer(_rawMaterialId) {
-        require(rawMaterials[_rawMaterialId].status == RawMaterialStatus.Supplied, "Raw material not supplied yet");
+    function receiveRawMaterial(uint _rawMaterialId) public onlyVerifiedManufacturer {
+        require(keccak256(abi.encodePacked(rawMaterials[_rawMaterialId].status)) == keccak256("Supplied"), "Raw material not supplied yet");
 
-        rawMaterials[_rawMaterialId].status = RawMaterialStatus.Received;
+        rawMaterials[_rawMaterialId].status = "Received";
         emit RawMaterialReceived(_rawMaterialId, msg.sender);
     }
 
@@ -97,55 +94,50 @@ contract SupplyChainManager {
     function addProduct(
         string memory _name,
         uint _quantity,
-        uint _price,
-        address _manufacturer,
-        address _retailer
-    ) public {
+        uint _price
+    ) public onlyVerifiedManufacturer {
         productCount++;
         products[productCount] = Product(
             productCount,
             _name,
             _quantity,
             _price,
-            _manufacturer,
-            _retailer,
-            ProductStatus.Created
+            msg.sender,
+            "Created"
         );
+
+        emit ProductCreated(productCount, msg.sender);
     }
 
     function shipProduct(uint _productId) public {
         require(msg.sender == products[_productId].manufacturer, "Not authorized");
-        require(products[_productId].status == ProductStatus.Created, "Invalid status");
+        require(keccak256(abi.encodePacked(products[_productId].status)) == keccak256("Created"), "Invalid status");
 
-        products[_productId].status = ProductStatus.Shipped;
-        emit ProductShipped(_productId, msg.sender);
+        products[_productId].status = "Shipped";
+        emit ProductShipped(_productId);
     }
 
-    function receiveProduct(uint _productId) public onlyRetailer(_productId) {
-        require(products[_productId].status == ProductStatus.Shipped, "Product not shipped yet");
+    function receiveProduct(uint _productId) public {
+        require(keccak256(abi.encodePacked(products[_productId].status)) == keccak256("Shipped"), "Product not shipped yet");
 
-        products[_productId].status = ProductStatus.Received;
-        emit ProductReceived(_productId, msg.sender);
+        products[_productId].status = "Received";
+        emit ProductReceived(_productId);
     }
 
-    function processPayment(
-    uint _id, // ID of the raw material or product
-    string memory _type // "rawMaterial" or "product"
-    ) public payable {
-        if (keccak256(abi.encodePacked(_type)) == keccak256(abi.encodePacked("rawMaterial"))) {
-            // Payment for raw materials (manufacturer pays supplier)
+    // Payment Processing
+    function processPayment(uint _id, string memory _type) public payable {
+        if (keccak256(abi.encodePacked(_type)) == keccak256("rawMaterial")) {
             RawMaterial memory rawMaterial = rawMaterials[_id];
-            require(msg.sender == rawMaterial.manufacturer, "Only manufacturer can pay for raw materials");
-            require(rawMaterial.status == RawMaterialStatus.Received, "Raw material not received yet");
+            require(msg.sender != rawMaterial.supplier, "Supplier cannot pay themselves");
+            require(keccak256(abi.encodePacked(rawMaterial.status)) == keccak256("Received"), "Raw material not received yet");
 
             uint amount = msg.value;
             payable(rawMaterial.supplier).transfer(amount);
             emit PaymentProcessed(_id, msg.sender, amount);
-        } else if (keccak256(abi.encodePacked(_type)) == keccak256(abi.encodePacked("product"))) {
-            // Payment for products (retailer pays manufacturer)
+        } else if (keccak256(abi.encodePacked(_type)) == keccak256("product")) {
             Product memory product = products[_id];
-            require(msg.sender == product.retailer, "Only retailer can pay for products");
-            require(product.status == ProductStatus.Received, "Product not received yet");
+            require(msg.sender != product.manufacturer, "Manufacturer cannot pay themselves");
+            require(keccak256(abi.encodePacked(product.status)) == keccak256("Received"), "Product not received yet");
 
             uint amount = msg.value;
             payable(product.manufacturer).transfer(amount);
@@ -153,20 +145,5 @@ contract SupplyChainManager {
         } else {
             revert("Invalid payment type");
         }
-    }
-
-    // Getters
-    function getRawMaterial(uint _rawMaterialId) public view returns (
-        string memory, uint, uint, address, address, RawMaterialStatus
-    ) {
-        RawMaterial memory rm = rawMaterials[_rawMaterialId];
-        return (rm.name, rm.quantity, rm.price, rm.supplier, rm.manufacturer, rm.status);
-    }
-
-    function getProduct(uint _productId) public view returns (
-        string memory, uint, uint, address, address, ProductStatus
-    ) {
-        Product memory p = products[_productId];
-        return (p.name, p.quantity, p.price, p.manufacturer, p.retailer, p.status);
     }
 }

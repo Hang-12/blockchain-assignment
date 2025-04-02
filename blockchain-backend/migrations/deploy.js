@@ -5,3 +5,4 @@ module.exports = function (deployer) {
   deployer.deploy(AccountVerification);
   deployer.deploy(SupplyChainManager);
 };
+

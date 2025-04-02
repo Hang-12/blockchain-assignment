@@ -1,3 +1,6 @@
+require('dotenv').config();
+const { MNEMONIC } = process.env;
+const HDWalletProvider = require('@truffle/hdwallet-provider');
 /**
  * Use this file to configure your truffle project. It's seeded with some
  * common settings for different networks and features like migrations,
@@ -64,10 +67,23 @@ module.exports = {
     // tab if you use this network and you must also set the `host`, `port` and `network_id`
     // options below to some value.
     //
-    development: {
-     host: "127.0.0.1",     // Localhost (default: none)
-     port: 8545,            // Standard Ethereum port (default: none)
-     network_id: "*",       // Any network (default: none)
+    // development: {
+    //  host: "127.0.0.1",     // Localhost (default: none)
+    //  port: 8545,            // Standard Ethereum port (default: none)
+    //  network_id: "*",       // Any network (default: none)
+    // },
+
+    sepolia: {
+      provider: () => new HDWalletProvider(
+        MNEMONIC, 
+        'https://eth-sepolia.g.alchemy.com/v2/488C1sUM1UQGfO8tX20nU0l1kDpt99Og'
+      ),
+      network_id: 11155111,  // Sepolia's network id
+      gas: 5500000,          // Gas limit
+      confirmations: 2,      // # of confirmations to wait between deployments
+      timeoutBlocks: 200,    // # of blocks before deployment times out
+      skipDryRun: true,
+      from: "0xba02612f5EB353431022C4A0003d94728a573140"       // Skip dry run before migrations
     },
     //
     // An additional network, but with some advanced options…

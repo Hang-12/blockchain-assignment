@@ -1,18 +1,13 @@
-// const AccountVerification = artifacts.require("AccountVerification");
-// const SupplyChainManager = artifacts.require("SupplyChainManager");
-
-// module.exports = function (deployer) {
-//   deployer.deploy(AccountVerification);
-//   deployer.deploy(SupplyChainManager);
-// };
-
-
 const AccountVerification = artifacts.require("AccountVerification");
 const SupplyChainManager = artifacts.require("SupplyChainManager");
 
 module.exports = async function (deployer) {
+  // deployer.deploy(AccountVerification);
+  // deployer.deploy(SupplyChainManager);
+
   await deployer.deploy(AccountVerification);
-  const accountVerification = await AccountVerification.deployed();
-  
-  await deployer.deploy(SupplyChainManager, accountVerification.address);
+    const accountVerifierInstance = await AccountVerification.deployed();
+
+    // Deploy SupplyChainManager with the address of AccountVerification
+    await deployer.deploy(SupplyChainManager, accountVerifierInstance.address);
 };

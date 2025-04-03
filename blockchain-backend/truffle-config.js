@@ -94,7 +94,6 @@ module.exports = {
       skipDryRun: true,
       from: "0xba02612f5EB353431022C4A0003d94728a573140"       // Deployer Account (Metamask Address)
     },
-    
     //
     // An additional network, but with some advanced options…
     // advanced: {
@@ -122,10 +121,6 @@ module.exports = {
     //   network_id: 2111,   // This network is yours, in the cloud.
     //   production: true    // Treats this network as if it was a public net. (default: false)
     // }
-  },
-  plugins: ["truffle-plugin-verify"],
-  api_keys: {
-    etherscan: process.env.ETHERSCAN_API_KEY
   },
 
   // Set default mocha options here, use special reporters, etc.

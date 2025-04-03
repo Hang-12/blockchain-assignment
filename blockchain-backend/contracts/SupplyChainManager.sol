@@ -32,7 +32,19 @@ contract SupplyChainManager {
 
     mapping(uint => RawMaterial) public rawMaterials;
     mapping(uint => Product) public products;
-    mapping(uint => uint) public escrowBalance;
+
+    mapping(uint => uint) public escrowBalance; // Secure payments
+    
+    mapping(uint => uint) public escrowBalanceForRawMaterial;
+    mapping(uint => uint) public escrowBalanceForProduct;
+
+    function getEscrowBalance(uint _id, bool isProduct) public view returns (uint) {
+        if (isProduct) {
+            return escrowBalanceForProduct[_id];
+        } else {
+            return escrowBalanceForRawMaterial[_id];
+        }
+    }
 
     uint public rawMaterialCount;
     uint public productCount;
@@ -97,7 +109,9 @@ contract SupplyChainManager {
         RawMaterial storage rm = rawMaterials[_rawMaterialId];
         require(msg.sender == rm.supplier, "Not supplier");
         require(rm.status == RawMaterialStatus.Created, "Invalid status");
-        
+
+        require(escrowBalanceForRawMaterial[_rawMaterialId] >= rm.price, "Payment not deposited");
+
         rm.status = RawMaterialStatus.Supplied;
         emit RawMaterialSupplied(_rawMaterialId, msg.sender);
     }
@@ -112,8 +126,11 @@ contract SupplyChainManager {
         
         rm.status = RawMaterialStatus.Received;
         emit RawMaterialReceived(_rawMaterialId, msg.sender);
-        
-        _releasePayment(_rawMaterialId, "rawMaterial", rm.supplier);
+
+        uint amount = escrowBalanceForRawMaterial[_rawMaterialId];
+        require(amount > 0, "No funds in escrow");
+
+        emit PaymentReleased(_rawMaterialId, rm.supplier, amount);
     }
 
     // Product Management
@@ -147,6 +164,8 @@ contract SupplyChainManager {
         require(msg.sender == p.manufacturer, "Not manufacturer");
         require(p.status == ProductStatus.Created, "Invalid status");
         
+        require(escrowBalanceForProduct[_productId] >= p.price, "Payment not deposited");
+
         p.status = ProductStatus.Shipped;
         emit ProductShipped(_productId, msg.sender);
     }
@@ -161,38 +180,100 @@ contract SupplyChainManager {
         
         p.status = ProductStatus.Received;
         emit ProductReceived(_productId, msg.sender);
-        
-        _releasePayment(_productId, "product", p.manufacturer);
+
+        uint amount = escrowBalanceForProduct[_productId];
+        require(amount > 0, "No funds in escrow");
+
+        emit PaymentReleased(_productId, p.manufacturer, amount);
     }
 
-    // Payment Handling
+    // function processPayment(
+    // uint _id, // ID of the raw material or product
+    // string memory _type // "rawMaterial" or "product"
+    // ) public payable {
+    //     if (keccak256(abi.encodePacked(_type)) == keccak256(abi.encodePacked("rawMaterial"))) {
+    //         // Payment for raw materials (manufacturer pays supplier)
+    //         RawMaterial memory rawMaterial = rawMaterials[_id];
+    //         require(msg.sender == rawMaterial.manufacturer, "Only manufacturer can pay for raw materials");
+    //         require(rawMaterial.status == RawMaterialStatus.Received, "Raw material not received yet");
+
+    //         uint amount = msg.value;
+    //         payable(rawMaterial.supplier).transfer(amount);
+    //         emit PaymentProcessed(_id, msg.sender, amount);
+    //     } else if (keccak256(abi.encodePacked(_type)) == keccak256(abi.encodePacked("product"))) {
+    //         // Payment for products (retailer pays manufacturer)
+    //         Product memory product = products[_id];
+    //         require(msg.sender == product.retailer, "Only retailer can pay for products");
+    //         require(product.status == ProductStatus.Received, "Product not received yet");
+
+    //         uint amount = msg.value;
+    //         payable(product.manufacturer).transfer(amount);
+    //         emit PaymentProcessed(_id, msg.sender, amount);
+    //     } else {
+    //         revert("Invalid payment type");
+    //     }
+    // }
+
     function depositPayment(uint _id, string memory _type) public payable {
-        uint requiredAmount;
-        address payee;
+        require(msg.value > 0, "Must deposit a positive amount");
 
         if (keccak256(abi.encodePacked(_type)) == keccak256(abi.encodePacked("rawMaterial"))) {
-            RawMaterial storage rm = rawMaterials[_id];
-            requiredAmount = rm.price;
-            payee = rm.manufacturer;
-        } else {
-            Product storage p = products[_id];
-            requiredAmount = p.price;
-            payee = p.retailer;
+            require(rawMaterials[_id].price > 0, "Raw material does not exist");
+            require(
+                escrowBalanceForRawMaterial[_id] + msg.value == rawMaterials[_id].price,
+                "Total deposit must match required amount"
+            );
+            escrowBalanceForRawMaterial[_id] += msg.value;
+        } 
+        else if (keccak256(abi.encodePacked(_type)) == keccak256(abi.encodePacked("product"))) {
+            require(products[_id].price > 0, "Product does not exist");
+            require(
+                escrowBalanceForProduct[_id] + msg.value == products[_id].price,
+                "Total deposit must match required amount"
+            );
+            escrowBalanceForProduct[_id] += msg.value;
+        } 
+        else {
+            revert("Invalid type");
         }
 
-        require(msg.value == requiredAmount, "Incorrect amount");
-        require(msg.sender == payee, "Unauthorized payment");
-
-        escrowBalance[_id] += msg.value;
         emit PaymentDeposited(_id, msg.sender, msg.value);
     }
 
-    function _releasePayment(uint _id, string memory _type, address recipient) private {
-        uint amount = escrowBalance[_id];
-        require(amount > 0, "No funds in escrow");
+    function releasePayment(uint _id, string memory _type) public {
+        uint256 amount;
+        address recipient;
+        address payer;
 
-        escrowBalance[_id] = 0;
-        payable(recipient).transfer(amount);
+        if (keccak256(abi.encodePacked(_type)) == keccak256(abi.encodePacked("rawMaterial"))) {
+            require(rawMaterials[_id].price > 0, "Raw material does not exist");
+            amount = escrowBalanceForRawMaterial[_id];
+            require(amount > 0, "No funds in escrow");
+            
+            recipient = rawMaterials[_id].supplier;
+            payer = rawMaterials[_id].manufacturer;
+
+            escrowBalanceForRawMaterial[_id] = 0; 
+        } 
+        else if (keccak256(abi.encodePacked(_type)) == keccak256(abi.encodePacked("product"))) {
+            require(products[_id].price > 0, "Product does not exist");
+            amount = escrowBalanceForProduct[_id];
+            require(amount > 0, "No funds in escrow");
+
+            recipient = products[_id].manufacturer;
+            payer = products[_id].retailer;
+
+            escrowBalanceForProduct[_id] = 0; 
+        } 
+        else {
+            revert("Invalid payment type");
+        }
+
+        require(msg.sender == payer, "Only payer can release payment");
+
+        (bool success, ) = recipient.call{value: amount}("");
+        require(success, "Transfer failed");
+
         emit PaymentReleased(_id, recipient, amount);
     }
 

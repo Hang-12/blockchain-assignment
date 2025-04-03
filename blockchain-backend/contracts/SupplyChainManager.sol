@@ -52,14 +52,9 @@ contract SupplyChainManager {
     event RawMaterialReceived(uint rawMaterialId, address manufacturer);
     event ProductShipped(uint productId, address manufacturer);
     event ProductReceived(uint productId, address retailer);
-    // event PaymentProcessed(uint productId, address retailer, uint amount);
     event PaymentDeposited(uint id, address payer, uint amount);
     event PaymentReleased(uint id, address recipient, uint amount);
 
-    // modifier onlyOwner() {
-    //     require(msg.sender == owner, "Only owner can perform this action");
-    //     _;
-    // }
 
     modifier onlyVerifiedUser(AccountVerification.UserRole role) {
         (AccountVerification.UserRole userRole, bool isVerified) = accountVerifier.getUser(msg.sender);
@@ -85,7 +80,6 @@ contract SupplyChainManager {
         require(isVerified, "Manufacturer is not verified");
         require(role == AccountVerification.UserRole.Manufacturer, "Invalid manufacturer address");
 
-        // require(msg.value == _price, "Incorrect deposit amount");
 
         rawMaterialCount++;
         rawMaterials[rawMaterialCount] = RawMaterial(
@@ -103,13 +97,7 @@ contract SupplyChainManager {
         emit PaymentDeposited(rawMaterialCount, msg.sender, _price);
     }
 
-    // function supplyRawMaterial(uint _rawMaterialId) public {
-    //     // require(msg.sender == rawMaterials[_rawMaterialId].supplier, "Not authorized");
-    //     require(rawMaterials[_rawMaterialId].status == RawMaterialStatus.Created, "Invalid status");
-
-    //     rawMaterials[_rawMaterialId].status = RawMaterialStatus.Supplied;
-    //     emit RawMaterialSupplied(_rawMaterialId, msg.sender);
-    // }
+ 
 
     function supplyRawMaterial(uint _rawMaterialId) public {
         RawMaterial storage rm = rawMaterials[_rawMaterialId];
@@ -121,19 +109,6 @@ contract SupplyChainManager {
         emit RawMaterialSupplied(_rawMaterialId, msg.sender);
     }
 
-    // function receiveRawMaterial(uint _rawMaterialId) public onlyManufacturer(_rawMaterialId) {
-    //     require(rawMaterials[_rawMaterialId].status == RawMaterialStatus.Supplied, "Raw material not supplied yet");
-
-    //     rawMaterials[_rawMaterialId].status = RawMaterialStatus.Received;
-    //     emit RawMaterialReceived(_rawMaterialId, msg.sender);
-    // }
-
-    // function receiveRawMaterial(uint _rawMaterialId) public onlyVerifiedUser(AccountVerification.UserRole.Manufacturer) {
-    //     require(rawMaterials[_rawMaterialId].status == RawMaterialStatus.Supplied, "Raw material not supplied yet");
-
-    //     rawMaterials[_rawMaterialId].status = RawMaterialStatus.Received;
-    //     emit RawMaterialReceived(_rawMaterialId, msg.sender);
-    // }
 
     function receiveRawMaterial(uint _rawMaterialId) public onlyVerifiedUser(AccountVerification.UserRole.Manufacturer) {
         RawMaterial storage rm = rawMaterials[_rawMaterialId];
@@ -162,7 +137,7 @@ contract SupplyChainManager {
         require(isVerified, "Retailer is not verified");
         require(role == AccountVerification.UserRole.Retailer, "Invalid retailer address");
 
-        // require(msg.value == _price, "Incorrect deposit amount");
+        
 
         productCount++;
         products[productCount] = Product(
@@ -176,17 +151,9 @@ contract SupplyChainManager {
             ProductStatus.Created
         );
 
-        // escrowBalances[productCount] = msg.value; // Store the deposit in escrow
+      
         emit PaymentDeposited(productCount, msg.sender, _price);
     }
-
-    // function shipProduct(uint _productId) public onlyVerifiedUser((AccountVerification.UserRole.Manufacturer)) {
-    //     // require(msg.sender == products[_productId].manufacturer, "Not authorized");
-    //     require(products[_productId].status == ProductStatus.Created, "Invalid status");
-
-    //     products[_productId].status = ProductStatus.Shipped;
-    //     emit ProductShipped(_productId, msg.sender);
-    // }
 
     function shipProduct(uint _productId) public onlyVerifiedUser(AccountVerification.UserRole.Manufacturer) {
         Product storage p = products[_productId];
@@ -197,20 +164,6 @@ contract SupplyChainManager {
         p.status = ProductStatus.Shipped;
         emit ProductShipped(_productId, msg.sender);
     }
-
-    // function receiveProduct(uint _productId) public onlyRetailer(_productId) {
-    //     require(products[_productId].status == ProductStatus.Shipped, "Product not shipped yet");
-
-    //     products[_productId].status = ProductStatus.Received;
-    //     emit ProductReceived(_productId, msg.sender);
-    // }
-
-    // function receiveProduct(uint _productId) public onlyVerifiedUser(AccountVerification.UserRole.Retailer) {
-    //     require(products[_productId].status == ProductStatus.Shipped, "Product not shipped yet");
-
-    //     products[_productId].status = ProductStatus.Received;
-    //     emit ProductReceived(_productId, msg.sender);
-    // }
 
     function receiveProduct(uint _productId) public onlyVerifiedUser(AccountVerification.UserRole.Retailer) {
         Product storage p = products[_productId];
@@ -227,32 +180,6 @@ contract SupplyChainManager {
         emit PaymentReleased(_productId, p.manufacturer, amount);
     }
 
-    // function processPayment(
-    // uint _id, // ID of the raw material or product
-    // string memory _type // "rawMaterial" or "product"
-    // ) public payable {
-    //     if (keccak256(abi.encodePacked(_type)) == keccak256(abi.encodePacked("rawMaterial"))) {
-    //         // Payment for raw materials (manufacturer pays supplier)
-    //         RawMaterial memory rawMaterial = rawMaterials[_id];
-    //         require(msg.sender == rawMaterial.manufacturer, "Only manufacturer can pay for raw materials");
-    //         require(rawMaterial.status == RawMaterialStatus.Received, "Raw material not received yet");
-
-    //         uint amount = msg.value;
-    //         payable(rawMaterial.supplier).transfer(amount);
-    //         emit PaymentProcessed(_id, msg.sender, amount);
-    //     } else if (keccak256(abi.encodePacked(_type)) == keccak256(abi.encodePacked("product"))) {
-    //         // Payment for products (retailer pays manufacturer)
-    //         Product memory product = products[_id];
-    //         require(msg.sender == product.retailer, "Only retailer can pay for products");
-    //         require(product.status == ProductStatus.Received, "Product not received yet");
-
-    //         uint amount = msg.value;
-    //         payable(product.manufacturer).transfer(amount);
-    //         emit PaymentProcessed(_id, msg.sender, amount);
-    //     } else {
-    //         revert("Invalid payment type");
-    //     }
-    // }
 
     function depositPayment(uint _id, string memory _type) public payable {
         require(msg.value > 0, "Must deposit a positive amount");

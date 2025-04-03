@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 contract AccountVerification {
-    address public admin;
+    address private admin;
 
     enum UserRole { Supplier, Manufacturer, Retailer }
 

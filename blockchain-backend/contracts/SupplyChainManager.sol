@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import "./AccountVerification.sol";
+
 contract SupplyChainManager {
+    AccountVerification public accountVerifier;
     address public owner;
 
     enum RawMaterialStatus { Created, Supplied, Received }
@@ -29,11 +32,6 @@ contract SupplyChainManager {
 
     mapping(uint => RawMaterial) public rawMaterials;
     mapping(uint => Product) public products;
-
-    mapping(address => bool) public isSupplier;
-    mapping(address => bool) public isManufacturer;
-    mapping(address => bool) public isRetailer;
-
     mapping(uint => uint) public escrowBalance; // Secure payments
 
     uint public rawMaterialCount;
@@ -46,53 +44,21 @@ contract SupplyChainManager {
     event PaymentProcessed(uint productId, address retailer, uint amount);
     event RoleAssigned(address user, string role);
 
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Only owner can perform this action");
-        _;
-    }
-
-    // modifier onlyManufacturer(uint _rawMaterialId) {
-    //     require(msg.sender == rawMaterials[_rawMaterialId].manufacturer, "Not authorized");
+    // modifier onlyOwner() {
+    //     require(msg.sender == owner, "Only owner can perform this action");
     //     _;
     // }
 
-    // modifier onlyRetailer(uint _productId) {
-    //     require(msg.sender == products[_productId].retailer, "Not authorized");
-    //     _;
-    // }
-
-    modifier onlySupplier() {
-        require(isSupplier[msg.sender], "Only supplier can perform this action");
+    modifier onlyVerifiedUser(AccountVerification.UserRole role) {
+        (AccountVerification.UserRole userRole, bool isVerified) = accountVerifier.getUser(msg.sender);
+        require(isVerified, "User is not verified");
+        require(userRole == role, "Unauthorized user role");
         _;
     }
 
-    modifier onlyManufacturer() {
-        require(isManufacturer[msg.sender], "Only manufacturer can perform this action");
-        _;
-    }
-
-    modifier onlyRetailer() {
-        require(isRetailer[msg.sender], "Only retailer can perform this action");
-        _;
-    }
-
-    constructor() {
+    constructor(address _accountVerifier) {
         owner = msg.sender;
-    }
-
-    function assignSupplier(address _supplier) public onlyOwner {
-        isSupplier[_supplier] = true;
-        emit RoleAssigned(_supplier, "Supplier");
-    }
-
-    function assignManufacturer(address _manufacturer) public onlyOwner {
-        isManufacturer[_manufacturer] = true;
-        emit RoleAssigned(_manufacturer, "Manufacturer");
-    }
-
-    function assignRetailer(address _retailer) public onlyOwner {
-        isRetailer[_retailer] = true;
-        emit RoleAssigned(_retailer, "Retailer");
+        accountVerifier = AccountVerification(_accountVerifier);
     }
 
     // Raw Material Management

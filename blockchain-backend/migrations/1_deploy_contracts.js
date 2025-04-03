@@ -11,5 +11,3 @@ module.exports = async function (deployer) {
     // Deploy SupplyChainManager with the address of AccountVerification
     await deployer.deploy(SupplyChainManager, accountVerifierInstance.address);
 };
-
-

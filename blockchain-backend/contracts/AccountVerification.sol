@@ -1,22 +1,23 @@
 // SPDX-License-Identifier: UNLICENSED
+
 pragma solidity ^0.8.20;
 
 contract AccountVerification {
-    address public admin;
 
-    enum UserRole { Supplier, Manufacturer, Retailer }
+    address private admin;  // Change to private
 
+    // Remove enum and use strings directly
     struct User {
         address userAddress;
-        UserRole role;
+        string role;  // Store role as a string
         bool isVerified;
     }
 
     mapping(address => User) public users;
 
-    event UserRegistered(address indexed userAddress, UserRole role);
-    event UserVerified(address indexed userAddress, UserRole role);
-    event UserRevoked(address indexed userAddress, UserRole role);
+    event UserRegistered(address indexed userAddress, string role);  // Use string for role
+    event UserVerified(address indexed userAddress, string role);    // Use string for role
+    event UserRevoked(address indexed userAddress, string role);     // Use string for role
 
     modifier onlyAdmin() {
         require(msg.sender == admin, "Only admin can perform this action");
@@ -28,7 +29,7 @@ contract AccountVerification {
     }
 
     // Register a new user (Supplier, Manufacturer, or Retailer)
-    function registerUser(address _userAddress, UserRole _role) public onlyAdmin {
+    function registerUser(address _userAddress, string memory _role) public onlyAdmin {
         require(users[_userAddress].userAddress == address(0), "User already registered");
         users[_userAddress] = User(_userAddress, _role, false);
         emit UserRegistered(_userAddress, _role);
@@ -56,9 +57,9 @@ contract AccountVerification {
     }
 
     // Get user details
-    function getUser(address _userAddress) public view returns (UserRole, bool) {
+    function getUser(address _userAddress) public view returns (string memory, bool) {
         require(users[_userAddress].userAddress != address(0), "User not registered");
         User memory user = users[_userAddress];
-        return (user.role, user.isVerified);
+        return (user.role, user.isVerified);  // Directly return the string role
     }
 }

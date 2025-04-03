@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import "./AccountVerification.sol";
+
 contract SupplyChainManager {
+    AccountVerification public accountVerifier;
     address public owner;
 
     enum RawMaterialStatus { Created, Supplied, Received }
@@ -29,60 +32,54 @@ contract SupplyChainManager {
 
     mapping(uint => RawMaterial) public rawMaterials;
     mapping(uint => Product) public products;
+    mapping(uint => uint) public escrowBalance;
 
     uint public rawMaterialCount;
     uint public productCount;
 
+    event RawMaterialCreated(uint rawMaterialId, address supplier);
     event RawMaterialSupplied(uint rawMaterialId, address supplier);
     event RawMaterialReceived(uint rawMaterialId, address manufacturer);
-    event ProductShipped(uint productId, address sender);
-    event ProductReceived(uint productId, address receiver);
-    event PaymentProcessed(uint id, address payer, uint amount);
+    event ProductCreated(uint productId, address manufacturer);
+    event ProductShipped(uint productId, address manufacturer);
+    event ProductReceived(uint productId, address retailer);
+    event PaymentDeposited(uint id, address payer, uint amount);
+    event PaymentReleased(uint id, address recipient, uint amount);
 
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Only owner can perform this action");
+    modifier onlyVerifiedUser(AccountVerification.UserRole role) {
+        (AccountVerification.UserRole userRole, bool isVerified) = accountVerifier.getUser(msg.sender);
+        require(isVerified, "User not verified");
+        require(userRole == role, "Unauthorized role");
         _;
     }
 
-    modifier onlySupplier() {
-        require(isSupplier(msg.sender), "Only supplier can perform this action");
+    modifier onlyAssignedManufacturer(uint _rawMaterialId) {
+        require(msg.sender == rawMaterials[_rawMaterialId].manufacturer, 
+            "Not assigned manufacturer");
         _;
     }
 
-    // Check if an address has ever been registered as a supplier
-    function isSupplier(address _addr) internal view returns (bool) {
-        for (uint i = 1; i <= rawMaterialCount; i++) {
-            if (rawMaterials[i].supplier == _addr) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // For raw material-related functions, ensure the caller is the manufacturer set for that raw material
-    modifier onlyManufacturer(uint _rawMaterialId) {
-        require(msg.sender == rawMaterials[_rawMaterialId].manufacturer, "Only manufacturer can receive this raw material");
+    modifier onlyAssignedRetailer(uint _productId) {
+        require(msg.sender == products[_productId].retailer, 
+            "Not assigned retailer");
         _;
     }
 
-    // For product-related functions, ensure the caller is the retailer set for that product
-    modifier onlyRetailer(uint _productId) {
-        require(msg.sender == products[_productId].retailer, "Only retailer can receive this product");
-        _;
-    }
-
-    constructor() {
+    constructor(address _accountVerifier) {
         owner = msg.sender;
+        accountVerifier = AccountVerification(_accountVerifier);
     }
 
     // Raw Material Management
-
-    // Only an address that has been a supplier can create raw materials.
     function createRawMaterial(
         string memory _name,
         uint _quantity,
-        uint _price
-    ) public onlySupplier {
+        uint _price,
+        address _manufacturer
+    ) public onlyVerifiedUser(AccountVerification.UserRole.Supplier) {
+        (, bool mfgVerified) = accountVerifier.getUser(_manufacturer);
+        require(mfgVerified, "Manufacturer not verified");
+
         rawMaterialCount++;
         rawMaterials[rawMaterialCount] = RawMaterial(
             rawMaterialCount,
@@ -90,41 +87,45 @@ contract SupplyChainManager {
             _quantity,
             _price,
             msg.sender,
-            address(0),
+            _manufacturer,
             RawMaterialStatus.Created
         );
+        emit RawMaterialCreated(rawMaterialCount, msg.sender);
     }
 
-    // Supplier supplies a raw material and assigns a manufacturer.
-    function supplyRawMaterial(uint _rawMaterialId, address _manufacturer) public {
-        require(msg.sender == rawMaterials[_rawMaterialId].supplier, "Only supplier can supply raw materials");
-        require(rawMaterials[_rawMaterialId].status == RawMaterialStatus.Created, "Invalid status");
-        rawMaterials[_rawMaterialId].status = RawMaterialStatus.Supplied;
-        rawMaterials[_rawMaterialId].manufacturer = _manufacturer;
+    function supplyRawMaterial(uint _rawMaterialId) public {
+        RawMaterial storage rm = rawMaterials[_rawMaterialId];
+        require(msg.sender == rm.supplier, "Not supplier");
+        require(rm.status == RawMaterialStatus.Created, "Invalid status");
+        
+        rm.status = RawMaterialStatus.Supplied;
         emit RawMaterialSupplied(_rawMaterialId, msg.sender);
     }
 
-    // Either the assigned manufacturer or the supplier can mark the raw material as received.
-    function receiveRawMaterial(uint _rawMaterialId) public {
-        require(
-            msg.sender == rawMaterials[_rawMaterialId].manufacturer || msg.sender == rawMaterials[_rawMaterialId].supplier,
-            "Only manufacturer or supplier can receive raw material"
-        );
-        require(rawMaterials[_rawMaterialId].status == RawMaterialStatus.Supplied, "Raw material not supplied yet");
-        rawMaterials[_rawMaterialId].status = RawMaterialStatus.Received;
+    function receiveRawMaterial(uint _rawMaterialId) 
+        public 
+        onlyVerifiedUser(AccountVerification.UserRole.Manufacturer)
+        onlyAssignedManufacturer(_rawMaterialId) 
+    {
+        RawMaterial storage rm = rawMaterials[_rawMaterialId];
+        require(rm.status == RawMaterialStatus.Supplied, "Not supplied");
+        
+        rm.status = RawMaterialStatus.Received;
         emit RawMaterialReceived(_rawMaterialId, msg.sender);
+        
+        _releasePayment(_rawMaterialId, "rawMaterial", rm.supplier);
     }
 
     // Product Management
-
-    // Only a manufacturer (an address that is not a supplier) can add a product.
-    function addProductManufacture(
+    function createProduct(
         string memory _name,
         uint _quantity,
         uint _price,
         address _retailer
-    ) public {
-        require(!isSupplier(msg.sender), "Only manufacturer wallet can add product manufacture");
+    ) public onlyVerifiedUser(AccountVerification.UserRole.Manufacturer) {
+        (, bool retailVerified) = accountVerifier.getUser(_retailer);
+        require(retailVerified, "Retailer not verified");
+
         productCount++;
         products[productCount] = Product(
             productCount,
@@ -135,66 +136,78 @@ contract SupplyChainManager {
             _retailer,
             ProductStatus.Created
         );
+        emit ProductCreated(productCount, msg.sender);
     }
 
-    // Shipping a product can be done by either the manufacturer or any address that has acted as a supplier.
-    function shipProduct(uint _productId) public {
-        require(
-            msg.sender == products[_productId].manufacturer || isSupplier(msg.sender),
-            "Only manufacturer or supplier can ship the product"
-        );
-        require(products[_productId].status == ProductStatus.Created, "Invalid status");
-        products[_productId].status = ProductStatus.Shipped;
+    function shipProduct(uint _productId) 
+        public 
+        onlyVerifiedUser(AccountVerification.UserRole.Manufacturer) 
+    {
+        Product storage p = products[_productId];
+        require(msg.sender == p.manufacturer, "Not manufacturer");
+        require(p.status == ProductStatus.Created, "Invalid status");
+        
+        p.status = ProductStatus.Shipped;
         emit ProductShipped(_productId, msg.sender);
     }
 
-    // Receiving a product can be done by the retailer or the manufacturer.
-    function receiveProduct(uint _productId) public {
-        require(
-            msg.sender == products[_productId].retailer || msg.sender == products[_productId].manufacturer,
-            "Only retailer or manufacturer can receive this product"
-        );
-        require(products[_productId].status == ProductStatus.Shipped, "Product not shipped yet");
-        products[_productId].status = ProductStatus.Received;
+    function receiveProduct(uint _productId) 
+        public 
+        onlyVerifiedUser(AccountVerification.UserRole.Retailer)
+        onlyAssignedRetailer(_productId) 
+    {
+        Product storage p = products[_productId];
+        require(p.status == ProductStatus.Shipped, "Not shipped");
+        
+        p.status = ProductStatus.Received;
         emit ProductReceived(_productId, msg.sender);
+        
+        _releasePayment(_productId, "product", p.manufacturer);
     }
 
-    // Process payments for raw materials (manufacturer pays supplier) or for products (retailer pays manufacturer).
-    function processPayment(uint _id, string memory _type) public payable {
+    // Payment Handling
+    function depositPayment(uint _id, string memory _type) public payable {
+        uint requiredAmount;
+        address payee;
+
         if (keccak256(abi.encodePacked(_type)) == keccak256(abi.encodePacked("rawMaterial"))) {
-            RawMaterial memory rawMaterial = rawMaterials[_id];
-            require(msg.sender == rawMaterial.manufacturer, "Only manufacturer can pay for raw materials");
-            require(rawMaterial.status == RawMaterialStatus.Received, "Raw material not received yet");
-            uint amount = msg.value;
-            payable(rawMaterial.supplier).transfer(amount);
-            emit PaymentProcessed(_id, msg.sender, amount);
-        } else if (keccak256(abi.encodePacked(_type)) == keccak256(abi.encodePacked("product"))) {
-            Product memory product = products[_id];
-            require(msg.sender == product.retailer, "Only retailer can pay for products");
-            require(product.status == ProductStatus.Received, "Product not received yet");
-            uint amount = msg.value;
-            payable(product.manufacturer).transfer(amount);
-            emit PaymentProcessed(_id, msg.sender, amount);
+            RawMaterial storage rm = rawMaterials[_id];
+            requiredAmount = rm.price;
+            payee = rm.manufacturer;
         } else {
-            revert("Invalid payment type");
+            Product storage p = products[_id];
+            requiredAmount = p.price;
+            payee = p.retailer;
         }
+
+        require(msg.value == requiredAmount, "Incorrect amount");
+        require(msg.sender == payee, "Unauthorized payment");
+
+        escrowBalance[_id] += msg.value;
+        emit PaymentDeposited(_id, msg.sender, msg.value);
+    }
+
+    function _releasePayment(uint _id, string memory _type, address recipient) private {
+        uint amount = escrowBalance[_id];
+        require(amount > 0, "No funds in escrow");
+
+        escrowBalance[_id] = 0;
+        payable(recipient).transfer(amount);
+        emit PaymentReleased(_id, recipient, amount);
     }
 
     // Getters
-
-    // Only the manufacturer for the raw material can view its details.
-    function getRawMaterial(uint _rawMaterialId) public view onlyManufacturer(_rawMaterialId) returns (
+    function getRawMaterial(uint _id) public view returns (
         string memory, uint, uint, address, address, RawMaterialStatus
     ) {
-        RawMaterial memory rm = rawMaterials[_rawMaterialId];
+        RawMaterial memory rm = rawMaterials[_id];
         return (rm.name, rm.quantity, rm.price, rm.supplier, rm.manufacturer, rm.status);
     }
 
-    // Only the retailer can view the product details.
-    function getProduct(uint _productId) public view onlyRetailer(_productId) returns (
+    function getProduct(uint _id) public view returns (
         string memory, uint, uint, address, address, ProductStatus
     ) {
-        Product memory p = products[_productId];
+        Product memory p = products[_id];
         return (p.name, p.quantity, p.price, p.manufacturer, p.retailer, p.status);
     }
 }
